@@ -1,2 +1,0 @@
-# KTGames_bot
-bot
