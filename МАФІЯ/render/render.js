@@ -26,7 +26,7 @@ import {
   createRoom,
   updateRoom,
   getRoom,
-  listenRoom,
+  listenRoomm,
   getUserId,
   getUserName,
   createRoomCode
@@ -345,7 +345,7 @@ function bindEvents() {
     state.game = room;
     state.screen = "lobby";
 
-    listenRoom(code, (room) => {
+    listenRoomm(code, (room) => {
       state.game = room;
       render();
     });
@@ -382,7 +382,7 @@ function bindEvents() {
     state.game = room;
     state.screen = "lobby";
 
-    listenRoom(code, (room) => {
+    listenRoomm(code, (room) => {
       state.game = room;
       render();
     });
