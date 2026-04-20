@@ -75,7 +75,7 @@ export async function deleteRoom(code) {
   await deleteDoc(roomRef(code));
 }
 
-export function listenRoom(code, cb) {
+export function listenRoomm(code, cb) {
   return onSnapshot(roomRef(code), (snap) => {
     cb(snap.data());
   });
