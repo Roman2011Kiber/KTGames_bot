@@ -345,7 +345,10 @@ function bindEvents() {
     state.game = room;
     state.screen = "lobby";
 
-    listenRoom(code);
+    listenRoom(code, (room) => {
+      state.game = room;
+      render();
+    });
 
     render();
   });
@@ -379,7 +382,10 @@ function bindEvents() {
     state.game = room;
     state.screen = "lobby";
 
-    listenRoom(code);
+    listenRoom(code, (room) => {
+      state.game = room;
+      render();
+    });
 
     render();
   });
