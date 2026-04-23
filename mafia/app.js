@@ -41,4 +41,4 @@ route("/game", () => {
   return SoloGamePage(root);
 });
 
-start(() => NotFoundPage(root));
+start(() => HomePage());
