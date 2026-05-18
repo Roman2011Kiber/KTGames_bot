@@ -40,18 +40,18 @@ route('/online/:code',  params => transitionPage((r, p) => OnlineRoomPage(r, p),
 
 start(() => NotFoundPage(root));
 
-// ── Global sound toggle ────────────────────────────────────────────────────────
+// â”€â”€ Global sound toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function mountSoundToggle() {
   let btn;
 
   function update() {
-    if (btn) btn.textContent = isSoundOn() ? '🔊' : '🔇';
+    if (btn) btn.textContent = isSoundOn() ? 'ðŸ”Š' : 'ðŸ”‡';
   }
 
   btn = h('button.sound-fab', {
-    title: 'Увімкнути / вимкнути озвучку',
+    title: 'Ð£Ð²Ñ–Ð¼ÐºÐ½ÑƒÑ‚Ð¸ / Ð²Ð¸Ð¼ÐºÐ½ÑƒÑ‚Ð¸ Ð¾Ð·Ð²ÑƒÑ‡ÐºÑƒ',
     onclick: () => { toggleSound(); update(); },
-  }, isSoundOn() ? '🔊' : '🔇');
+  }, isSoundOn() ? 'ðŸ”Š' : 'ðŸ”‡');
 
   document.body.appendChild(btn);
 }
