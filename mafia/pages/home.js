@@ -1,42 +1,32 @@
-import { h } from "../lib/dom.js";
-import { loadLastGame } from "../lib/storage.js";
+import { h } from '../lib/dom.js';
+import { loadLastGame } from '../lib/storage.js';
 
 export function HomePage() {
   const last = loadLastGame();
-  return h("div.home", null, [
-    h("div.home-hero", null, [
-      h("p.home-eyebrow", null, "Темна сторона міста"),
-      h("h1.home-title.gold-text", null, "МАФІЯ"),
-      h("p.home-tagline", null, "Місто засинає. Прокидається мафія."),
+  return h('div.home', {}, [
+    h('div.home-hero', {}, [
+      h('p.home-eyebrow', {}, 'Темна сторона міста'),
+      h('h1.home-title.gold-text', {}, 'МАФІЯ'),
+      h('p.home-tagline', {}, 'Місто засинає. Прокидається мафія.'),
     ]),
-    h("div.home-list", null, [
-      h("a.home-card.primary", { href: "#/new" }, [
-        h("div", null, [
-          h("div.title", null, "Нова партія"),
-          h("div.sub", null, "Грайте проти ботів — від 4 до 20 гравців"),
-        ]),
-        h("span.icon", null, "🎭"),
+    h('div.home-list', {}, [
+      h('a.home-card.primary', { href: '#/new' }, [
+        h('div', {}, [h('div.title', {}, 'Нова партія'), h('div.sub', {}, 'Проти ботів — від 4 до 20 гравців')]),
+        h('span.icon', {}, '🎭'),
       ]),
-      h("a.home-card", { href: "#/online" }, [
-        h("div", null, [
-          h("div.title", null, "Онлайн-кімната"),
-          h("div.sub", null, "Створіть код і запросіть друзів"),
-        ]),
-        h("span.icon", null, "🕯️"),
+      h('a.home-card', { href: '#/online' }, [
+        h('div', {}, [h('div.title', {}, 'Онлайн-кімната'), h('div.sub', {}, 'Грайте з друзями та ботами за кодом')]),
+        h('span.icon', {}, '🕯️'),
       ]),
-      last && last.phase !== "ended" && h("a.home-card", { href: "#/game" }, [
-        h("div", null, [
-          h("div.sub", null, "Продовжити партію"),
-        ]),
-        h("span.accent", null, `Ніч ${last.day || 1} →`),
+      last && last.phase !== 'ended' && h('a.home-card', { href: '#/game' }, [
+        h('div', {}, [h('div.sub', {}, 'Продовжити партію')]),
+        h('span.accent', {}, `Ніч ${last.day || 1} →`),
       ]),
-      h("a.home-card", { href: "#/rules" }, [
-        h("div", null, [
-          h("div.sub", null, "Як грати"),
-        ]),
-        h("span.muted", null, "Правила та ролі →"),
+      h('a.home-card', { href: '#/rules' }, [
+        h('div', {}, [h('div.sub', {}, 'Як грати')]),
+        h('span.muted', {}, 'Правила та ролі →'),
       ]),
     ]),
-    h("div.home-footer", null, "«Місто не пробачає тих, хто мовчить.»"),
+    h('div.home-footer', {}, '«Місто не пробачає тих, хто мовчить.»'),
   ]);
 }
