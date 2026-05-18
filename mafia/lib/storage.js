@@ -1,155 +1,122 @@
-// =====================================================================
-//  Сховище: Firestore (real-time) якщо налаштовано, інакше localStorage.
-//  Однаковий API для обох режимів.
-// =====================================================================
+/**
+ * storage.js — REST API wrapper (replaces Firebase)
+ * All online room functions talk to our Express API server.
+ * Solo game still uses localStorage only.
+ */
 
-import { getDb, getApi, isFirebaseConfigured } from "./firebase.js";
+const API = '/api/mafia';
 
-const LS_PREFIX = "mafia:room:";
-const LS_LAST = "mafia:last-game";
-const LS_NICK = "mafia:nick";
-
-// ---------- Solo game cache ----------
-export function saveLastGame(g) {
-  try { localStorage.setItem(LS_LAST, JSON.stringify(g)); } catch { /* */ }
-}
-export function loadLastGame() {
-  try { const s = localStorage.getItem(LS_LAST); return s ? JSON.parse(s) : null; }
-  catch { return null; }
-}
-export function clearLastGame() {
-  try { localStorage.removeItem(LS_LAST); } catch { /* */ }
-}
-
-// ---------- Nickname ----------
-export function saveNickname(name) {
-  try { localStorage.setItem(LS_NICK, name); } catch { /* */ }
-}
-export function loadNickname() {
-  try { return localStorage.getItem(LS_NICK) || ""; } catch { return ""; }
-}
-
-// ---------- Room CRUD ----------
-export async function saveRoom(code, state) {
-  if (isFirebaseConfigured) {
-    const db = await getDb();
-    const api = await getApi();
-    await api.setDoc(api.doc(db, "mafia_rooms", code), state);
-  } else {
-    try {
-      localStorage.setItem(LS_PREFIX + code, JSON.stringify(state));
-      window.dispatchEvent(new CustomEvent("mafia-room-update", { detail: { code } }));
-    } catch { /* */ }
+async function apiCall(path, method = 'GET', body = null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(`${API}${path}`, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Помилка сервера');
   }
+  return res.json();
 }
 
-export async function patchRoom(code, partial) {
-  if (isFirebaseConfigured) {
-    const db = await getDb();
-    const api = await getApi();
-    await api.updateDoc(api.doc(db, "mafia_rooms", code), partial);
-  } else {
-    const cur = await loadRoom(code);
-    if (!cur) return;
-    const next = applyPatch(cur, partial);
-    await saveRoom(code, next);
+// ── Nickname / Solo cache ──────────────────────────────────────────────────────
+export const saveNickname  = n  => { try { localStorage.setItem('mafia:nick', n); } catch {} };
+export const loadNickname  = () => { try { return localStorage.getItem('mafia:nick') || ''; } catch { return ''; } };
+export const saveLastGame  = g  => { try { localStorage.setItem('mafia:solo', JSON.stringify(g)); } catch {} };
+export const loadLastGame  = () => { try { const s = localStorage.getItem('mafia:solo'); return s ? JSON.parse(s) : null; } catch { return null; } };
+export const clearLastGame = () => { try { localStorage.removeItem('mafia:solo'); } catch {} };
+
+// ── Room identity ─────────────────────────────────────────────────────────────
+export const saveMe = (code, info) => { try { localStorage.setItem(`mafia:me:${code}`, JSON.stringify(info)); } catch {} };
+export const loadMe = code => { try { const r = localStorage.getItem(`mafia:me:${code}`); return r ? JSON.parse(r) : null; } catch { return null; } };
+
+// ── Room API ──────────────────────────────────────────────────────────────────
+
+export async function createRoom(name, opts = {}) {
+  return apiCall('/rooms', 'POST', { name, ...opts });
+  // returns { code, playerId }
+}
+
+export async function joinRoom(code, name) {
+  return apiCall(`/rooms/${code}/join`, 'POST', { name });
+  // returns { playerId, code }
+}
+
+export async function loadRoom(code, playerId = '') {
+  return apiCall(`/rooms/${code}?playerId=${playerId}`);
+}
+
+// Polling-based subscribe (replaces Firebase onSnapshot)
+export function subscribeRoom(code, playerId, cb) {
+  let active = true;
+  let tid;
+  async function poll() {
+    if (!active) return;
+    try { cb(await loadRoom(code, playerId)); } catch { cb(null); }
+    if (active) tid = setTimeout(poll, 1500);
   }
+  poll();
+  return () => { active = false; clearTimeout(tid); };
 }
 
-export async function appendChatMessage(code, msg) {
-  if (isFirebaseConfigured) {
-    const db = await getDb();
-    const api = await getApi();
-    await api.updateDoc(api.doc(db, "mafia_rooms", code), {
-      chat: api.arrayUnion(msg),
-    });
-  } else {
-    const cur = await loadRoom(code);
-    if (!cur) return;
-    const chat = [...(cur.chat || []), msg].slice(-50);
-    await saveRoom(code, { ...cur, chat });
-  }
+export async function updateSettings(code, playerId, settings) {
+  return apiCall(`/rooms/${code}/settings`, 'POST', { playerId, ...settings });
 }
 
-export async function loadRoom(code) {
-  if (isFirebaseConfigured) {
-    const db = await getDb();
-    const api = await getApi();
-    const snap = await api.getDoc(api.doc(db, "mafia_rooms", code));
-    return snap.exists() ? snap.data() : null;
-  }
-  try {
-    const raw = localStorage.getItem(LS_PREFIX + code);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
+export async function startGame(code, playerId) {
+  return apiCall(`/rooms/${code}/start`, 'POST', { playerId });
 }
 
-export async function deleteRoom(code) {
-  if (isFirebaseConfigured) {
-    const db = await getDb();
-    const api = await getApi();
-    await api.deleteDoc(api.doc(db, "mafia_rooms", code));
-  } else {
-    try { localStorage.removeItem(LS_PREFIX + code); } catch { /* */ }
-  }
+export async function cancelRoom(code, playerId) {
+  return apiCall(`/rooms/${code}`, 'DELETE', { playerId });
 }
 
-// Підписка на зміни кімнати. Повертає функцію відписки.
-export function subscribeRoom(code, cb) {
-  if (isFirebaseConfigured) {
-    let unsub = () => {};
-    let cancelled = false;
-    (async () => {
-      const db = await getDb();
-      const api = await getApi();
-      if (cancelled) return;
-      unsub = api.onSnapshot(api.doc(db, "mafia_rooms", code), (snap) => {
-        cb(snap.exists() ? snap.data() : null);
-      });
-    })();
-    return () => { cancelled = true; try { unsub(); } catch { /* */ } };
-  }
-
-  // localStorage режим: storage event + custom event + м'який polling.
-  let cancelled = false;
-  let lastJson = "";
-  const tick = async () => {
-    if (cancelled) return;
-    const v = await loadRoom(code);
-    const json = v ? JSON.stringify(v) : "";
-    if (json !== lastJson) { lastJson = json; cb(v); }
-  };
-  tick();
-  const onStorage = (e) => { if (e.key === LS_PREFIX + code) tick(); };
-  const onCustom = (e) => { if (e.detail?.code === code) tick(); };
-  window.addEventListener("storage", onStorage);
-  window.addEventListener("mafia-room-update", onCustom);
-  let interval = null;
-  const startInt = () => { if (!interval) interval = setInterval(tick, 2000); };
-  const stopInt = () => { if (interval) { clearInterval(interval); interval = null; } };
-  const onVis = () => (document.hidden ? stopInt() : startInt());
-  document.addEventListener("visibilitychange", onVis);
-  if (!document.hidden) startInt();
-  return () => {
-    cancelled = true;
-    window.removeEventListener("storage", onStorage);
-    window.removeEventListener("mafia-room-update", onCustom);
-    document.removeEventListener("visibilitychange", onVis);
-    stopInt();
-  };
+export async function revealRole(code, playerId) {
+  return apiCall(`/rooms/${code}/reveal`, 'POST', { playerId });
 }
 
-function applyPatch(obj, patch) {
-  const out = JSON.parse(JSON.stringify(obj));
-  for (const [path, value] of Object.entries(patch)) {
-    const segs = path.split(".");
-    let node = out;
-    for (let i = 0; i < segs.length - 1; i++) {
-      const k = segs[i];
-      if (typeof node[k] !== "object" || node[k] === null) node[k] = {};
-      node = node[k];
-    }
-    node[segs[segs.length - 1]] = value;
-  }
-  return out;
+export async function castVote(code, voterId, targetId) {
+  return apiCall(`/rooms/${code}/vote`, 'POST', { voterId, targetId: targetId || 0 });
 }
+
+// Mafia night kill
+export async function nightKill(code, killerId, targetId) {
+  return apiCall(`/rooms/${code}/night-kill`, 'POST', { playerId: killerId, targetId });
+}
+
+// Doctor heal (fixes missing doctor action)
+export async function nightHeal(code, playerId, targetId) {
+  return apiCall(`/rooms/${code}/night-heal`, 'POST', { playerId, targetId });
+}
+
+// Sheriff investigate — safe, reveals mafia/town alignment
+export async function nightInvestigate(code, playerId, targetId) {
+  return apiCall(`/rooms/${code}/night-investigate`, 'POST', { playerId, targetId });
+}
+
+// Sheriff shoot — risky kill, wrong guess kills sheriff
+export async function sheriffShoot(code, playerId, targetId) {
+  return apiCall(`/rooms/${code}/sheriff-shoot`, 'POST', { playerId, targetId });
+}
+
+// Skip night action — marks human as "acted" so phase can advance
+export async function nightSkip(code, playerId) {
+  return apiCall(`/rooms/${code}/night-skip`, 'POST', { playerId });
+}
+
+// appendChat: called by chat.js component with { authorId, authorName, text }
+export async function appendChat(code, msg) {
+  return apiCall(`/rooms/${code}/chat`, 'POST', { playerId: msg.authorId, text: msg.text });
+}
+
+export async function appendMafiaChat(code, playerId, text) {
+  return apiCall(`/rooms/${code}/mafia-chat`, 'POST', { playerId, text });
+}
+
+export async function kickPlayer(code, hostId, playerId) {
+  return apiCall(`/rooms/${code}/kick`, 'POST', { playerId: hostId, kickedId: playerId });
+}
+
+// ── Legacy stubs (used by solo game logic, no-ops for online) ─────────────────
+export async function createRoomFirebase()  { throw new Error('use createRoom()'); }
+export async function saveRoom()            { /* no-op: server manages state */ }
+export async function patchRoom()           { /* no-op: server manages state */ }
+export async function deleteRoom()          { /* no-op */ }
