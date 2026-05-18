@@ -1,20 +1,35 @@
-export const tg = () => window.Telegram?.WebApp || null;
+// Telegram WebApp helpers (підключений через <script> в index.html).
+
+export function getTelegram() {
+  return (typeof window !== "undefined" && window.Telegram?.WebApp) || null;
+}
 
 export function initTelegram() {
-  const t = tg();
-  if (!t) return;
-  try { t.ready(); t.expand(); t.setBackgroundColor?.('#0a0606'); t.setHeaderColor?.('#0a0606'); } catch {}
+  const tg = getTelegram();
+  if (!tg) return;
+  try {
+    tg.ready();
+    tg.expand();
+    tg.setBackgroundColor?.("#0a0606");
+    tg.setHeaderColor?.("#0a0606");
+  } catch { /* */ }
 }
 
 export function getTelegramUser() {
-  const u = tg()?.initDataUnsafe?.user;
+  const tg = getTelegram();
+  const u = tg?.initDataUnsafe?.user;
   if (!u) return null;
   return {
     id: String(u.id),
-    name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Гравець',
-    avatar: u.photo_url || '',
+    name: [u.first_name, u.last_name].filter(Boolean).join(" ") || u.username || "Гравець",
+    avatar: u.photo_url || "",
   };
 }
 
-export function haptic(kind = 'light') { tg()?.HapticFeedback?.impactOccurred(kind); }
-export function hapticNotify(kind) { tg()?.HapticFeedback?.notificationOccurred(kind); }
+export function haptic(kind = "light") {
+  getTelegram()?.HapticFeedback?.impactOccurred(kind);
+}
+
+export function hapticNotify(kind) {
+  getTelegram()?.HapticFeedback?.notificationOccurred(kind);
+}

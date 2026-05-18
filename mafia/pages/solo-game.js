@@ -1,260 +1,291 @@
-import { h, mount } from '../lib/dom.js';
-import { Shell, Card } from '../components/shell.js';
-import { loadLastGame, saveLastGame, clearLastGame } from '../lib/storage.js';
-import { ROLES, ROLE_LABEL, ROLE_ICON, ROLE_DESC, roleTeam } from '../lib/game.js';
+import { h, mount } from "../lib/dom.js";
+import { Shell, Card } from "../components/shell.js";
+import { PlayersGrid } from "../components/players-grid.js";
+import { GameLog } from "../components/game-log.js";
+import { RoleBadge } from "../components/role-badge.js";
+import { openModal, closeModal } from "../components/modal.js";
 import {
-  alive, aliveTeam, byId, winner, addLog, fillBotNightActions,
-  resolveNight, resolveVotes, botVote, humanNightActors, humanVoters,
-} from '../lib/game.js';
-import { PlayersGrid } from '../components/players-grid.js';
-import { GameLog } from '../components/game-log.js';
-import { openModal, closeModal } from '../components/modal.js';
-import { notify } from '../lib/notify.js';
-import { haptic } from '../lib/telegram.js';
-import { navigate } from '../lib/router.js';
-import { speak } from '../lib/sound.js';
-
-let _timers = [];
-function addTimer(id) { _timers.push(id); }
-function clearTimers() { _timers.forEach(clearTimeout); _timers = []; }
-
-// ── Phase announcements ───────────────────────────────────────────────────────
-function announcePhase(next, prev) {
-  if (next.phase === prev) return;
-
-  if (next.phase === 'night-mafia') {
-    const lines = [
-      `Ніч ${next.day}. Вулиці порожніють.`,
-      'Десь у темряві прокидається мафія.',
-    ];
-    speak(lines.join(' '), { rate: 0.85, pitch: 0.9 });
-
-  } else if (next.phase === 'day-discussion') {
-    const day   = next.day > 0 ? next.day - 1 : 0;
-    const deaths = (next.log || []).filter(l => l.kind === 'death' && l.day === day);
-    const saved  = (next.log || []).filter(l => l.kind === 'save'  && l.day === day);
-
-    if (deaths.length) {
-      const names = deaths
-        .map(l => l.text.replace(/[^\wа-яіїєґА-ЯІЇЄҐ ,.'!]/gu, '').trim())
-        .join('. ');
-      speak(`Сонце зійшло. Місто прокинулось у жаху. ${names}`, { rate: 0.85 });
-    } else if (saved.length) {
-      speak('Ранок. Лікар знову врятував чиєсь життя. Місто видихнуло.', { rate: 0.87 });
-    } else {
-      speak('Тиха ніч. Місто прокидається живим. Але надовго?', { rate: 0.87 });
-    }
-
-  } else if (next.phase === 'day-vote') {
-    speak('Місто збирається на площі. Хто серед нас зрадник? Настав час вирішувати.', { rate: 0.88 });
-
-  } else if (next.phase === 'ended') {
-    if (next.winner === 'town')
-      speak('Місто вільне! Мафія знищена. Спокій нарешті повернувся на вулиці.', { rate: 0.85, pitch: 1.0 });
-    else
-      speak('Мафія перемогла. Темрява поглинула місто. Гра закінчена.', { rate: 0.82, pitch: 0.88 });
-  }
-}
+  PHASE_LABEL, ROLES, ROLE_DESC, ROLE_LABEL, ROLE_ICON,
+  alivePlayers, findById, appendLog,
+  collectBotNightActions, resolveNightActions,
+  aiDayVote, resolveVotes, mafiaCountFor,
+} from "../lib/game.js";
+import { loadLastGame, saveLastGame, clearLastGame } from "../lib/storage.js";
+import { haptic, hapticNotify } from "../lib/telegram.js";
+import { navigate } from "../lib/router.js";
 
 export function SoloGamePage(container) {
   let g = loadLastGame();
-  if (!g) { notify('Немає збереженої партії', 'error'); navigate('/new'); return; }
+  if (!g) { navigate("/"); return; }
 
-  // ── Persist + re-render ────────────────────────────────────────────────────
-  function update(next) {
-    const prevPhase = g.phase;
-    g = next; saveLastGame(g);
-    announcePhase(g, prevPhase);
-    if (g.winner) return endScreen();
-    render();
-    runBots();
+  if (g.phase === "role-reveal") {
+    showRoleReveal(findById(g, g.humanId), () => {
+      g = {
+        ...g,
+        phase: "night-mafia", day: 1,
+        log: appendLog(g.log, { day: 1, kind: "info", text: "🌙 Ніч 1. Місто засинає..." }),
+      };
+      save(); render();
+    });
   }
 
-  // ── Bot orchestration ──────────────────────────────────────────────────────
-  function runBots() {
-    clearTimers();
-    if (g.phase === 'day-discussion' || g.phase === 'role-reveal') return;
-    if (g.phase === 'night-mafia') {
-      addTimer(setTimeout(() => {
-        const human = alive(g).find(p => p.id === g.humanId);
-        if (human && ROLES[human.role]?.nightAction) return;
-        update(resolveNight(g, fillBotNightActions(g)));
-      }, 1200));
-    }
-    if (g.phase === 'day-vote') {
-      addTimer(setTimeout(() => {
-        const human = alive(g).find(p => p.id === g.humanId);
-        if (human) return;
-        const votes = {};
-        alive(g).filter(p => p.isBot).forEach(p => { const v = botVote(g, p); if (v) votes[p.id] = v; });
-        update(resolveVotes(g, votes));
-      }, 1200));
-    }
-  }
+  function save() { saveLastGame(g); }
+  function update(next) { g = next; save(); render(); }
 
-  function humanNightAction(targetId, action) {
-    const target = alive(g).find(p => p.id === targetId);
-    if (target) {
-      if (action === 'heal')
-        speak(`Ви обираєте ${target.name}. Хай ця ніч мине для нього спокійно.`, { rate: 0.87 });
-      else if (action === 'kill')
-        speak(`Ціль обрана. Місто ще не знає що станеться до ранку.`, { rate: 0.85, pitch: 0.9 });
-      else if (action === 'investigate')
-        speak(`Ви стежите за ${target.name}. Правда вийде на світ.`, { rate: 0.87 });
-      else if (action === 'sheriffKill')
-        speak(`Постріл. Хай рука не здригнеться.`, { rate: 0.85, pitch: 0.9 });
-    }
-    const next = resolveNight(g, fillBotNightActions(g, { [g.humanId]: { action, target: targetId } }));
-    // Speak investigation result before transitioning to day
-    if (action === 'investigate' && target) {
-      const inv = (next.night?.investigations || []).find(i => i.sheriffId === g.humanId);
-      if (inv) setTimeout(() => {
-        if (inv.isMafia)
-          speak(`Підозри підтвердились. ${inv.targetName} — це мафія!`, { rate: 0.85, pitch: 0.9 });
-        else
-          speak(`${inv.targetName} чистий. Він не той, кого ми шукаємо.`, { rate: 0.87 });
-      }, 1400);
-    }
-    update(next);
-  }
-
-  function humanVote(targetId) {
-    const botVotes = {};
-    alive(g).filter(p => p.isBot).forEach(p => { const v = botVote(g, p); if (v) botVotes[p.id] = v; });
-    update(resolveVotes(g, { ...botVotes, [g.humanId]: targetId }));
-  }
-
-  // ── End screen ─────────────────────────────────────────────────────────────
-  function endScreen() {
-    haptic('medium');
-    const w = g.winner;
-    const human = g.players.find(p => p.id === g.humanId);
-    const won = roleTeam(human?.role) === w;
-    mount(container, Shell({ title: 'Фінал', back: '/', children: [
-      h('div.text-center', {}, [
-        h('div.text-6xl.mb-4', {}, won ? '🏆' : '💀'),
-        h('h1.font-display.text-5xl.mb-2.gold-text', {}, won ? 'Перемога!' : 'Поразка'),
-        h('p.muted.font-serif.italic.mb-6', {}, w === 'town' ? 'Місто вціліло. Мафію виявлено!' : 'Мафія захопила місто...'),
-        h('div.players-grid.mt-4', {}, g.players.map(p =>
-          h('div.player-tile', {}, [
-            h('div.avatar', {}, p.avatar), h('div.name', {}, p.name),
-            h('div.text-xs.accent', {}, `${ROLE_ICON[p.role]} ${ROLE_LABEL[p.role]}`),
-          ])
-        )),
-        h('div.row.gap-3.mt-6', {}, [
-          h('button.btn.btn-ghost-gold', { onclick: () => { clearLastGame(); navigate('/new'); } }, 'Нова партія'),
-          h('button.btn.btn-blood', { onclick: () => navigate('/') }, 'Головна'),
-        ]),
-      ]),
-    ] }));
-  }
-
-  // ── Main render ────────────────────────────────────────────────────────────
   function render() {
-    if (g.winner) { endScreen(); return; }
+    const human = findById(g, g.humanId);
+    const isNight = g.phase.startsWith("night");
+    const isDay = g.phase.startsWith("day");
+    const ended = g.phase === "ended";
+    const bg = isNight ? "bg-night" : isDay ? "bg-day" : "bg-noir";
 
-    const human = byId(g, g.humanId);
-    const isAlive = human?.alive;
-    const myRole = human?.role;
-    const def = ROLES[myRole];
-    const actionDone = !!g.actions?.[g.humanId];
+    const node = Shell({
+      title: PHASE_LABEL[g.phase],
+      bg,
+      children: [
+        h("div.row-between.mb-3", null, [
+          h("div", null, [
+            h("div.text-xs.uppercase.tracking-mega.muted", null,
+              `${isNight ? "🌙 Ніч" : isDay ? "🌅 День" : "Гра"} ${g.day || 1}`),
+            h("h1.font-display.text-3xl.gold-text", null, PHASE_LABEL[g.phase]),
+          ]),
+          RoleBadge(human),
+        ]),
 
-    // Night action panel
-    let nightPanel = null;
-    if (g.phase === 'night-mafia' && isAlive && def?.nightAction) {
-      const isSheriff = myRole === 'sheriff';
-      const candidates = alive(g).filter(p => def.canTargetSelf ? true : p.id !== g.humanId);
+        PlayersGrid(g),
 
-      function renderPanel(action) {
-        openModal(h('div', {}, [
-          h('div.font-display.text-xl.mb-4', {}, action === 'sheriffKill' ? '🔫 Вистрілити' : '🔍 Перевірити'),
-          h('div.players-grid', {}, candidates.map(c =>
-            h('button.player-tile', { onclick: () => { closeModal(); humanNightAction(c.id, action); } },
-              [h('div.avatar', {}, c.avatar), h('div.name', {}, c.name)])
-          )),
-        ]));
+        h("div.mt-5", null, renderPhaseBlock()),
+
+        GameLog(g),
+      ],
+    });
+    mount(container, node);
+
+    function renderPhaseBlock() {
+      if (g.phase === "night-mafia") return renderNight(human);
+      if (g.phase === "day-discussion") return renderDayDisc();
+      if (g.phase === "day-vote") return renderVoting(human);
+      if (ended) return renderEnd(human);
+      return null;
+    }
+  }
+
+  function renderNight(human) {
+    const def = ROLES[human.role];
+    const action = human.alive ? def?.nightAction : null;
+    const candidates = alivePlayers(g).filter((p) => def?.canTargetSelf ? true : p.id !== human.id);
+    const ui = { target: null, submitted: false };
+
+    function submit() {
+      if (ui.submitted) return;
+      if (action && !ui.target) return;
+      ui.submitted = true; haptic("medium");
+      const actions = action && ui.target ? { [human.id]: { action, target: ui.target } } : {};
+      const all = collectBotNightActions(g, actions);
+      setTimeout(() => {
+        const next = resolveNightActions({ ...g }, all);
+        const myInv = next.night?.investigations?.find((i) => i.sheriffId === human.id);
+        if (myInv) showInvestigation({ name: myInv.targetName, isMafia: myInv.isMafia });
+        update(next);
+      }, 600);
+    }
+
+    if (!human.alive) {
+      return Card([
+        h("div.text-center.muted.font-serif.italic", null,
+          "Ви спостерігаєте за грою з-за лаштунків... Ніч триває."),
+        h("button.btn.btn-ghost-gold.mt-4", { onclick: submit }, "Перейти до ранку"),
+      ]);
+    }
+
+    let body;
+    if (action) {
+      const title = action === "kill" ? "🩸 Кого прибрати цієї ночі?"
+        : action === "heal" ? "🩺 Кого вилікувати?"
+        : action === "investigate" ? "🔍 Кого перевірити?"
+        : "Ваш хід";
+      let pickerEl;
+      const renderPicker = () => h("div.target-grid", null, candidates.map((p) =>
+        h("button.target-tile" + (ui.target === p.id ? ".picked" : ""), {
+          onclick: () => { ui.target = p.id; haptic("light"); refreshPicker(); refreshSubmit(); },
+        }, [
+          h("div.av", null, p.avatar),
+          h("div.nm", null, p.name),
+        ]),
+      ));
+      const refreshPicker = () => {
+        const next = renderPicker();
+        pickerEl.replaceWith(next); pickerEl = next;
+      };
+      pickerEl = renderPicker();
+      body = h("div", null, [
+        h("div.font-display.text-lg.mb-1", null, title),
+        def.canTargetSelf && h("div.text-xs.muted.mb-3", null, "Можна обрати себе."),
+        pickerEl,
+      ]);
+    } else {
+      body = h("div.text-center.py-4.muted.font-serif.italic", null,
+        `Ви — ${def?.label?.toLowerCase() || "мирний"}. Спіть спокійно... Місто пробудиться на світанку.`);
+    }
+
+    let submitBtn;
+    const refreshSubmit = () => {
+      const ready = !action || !!ui.target;
+      submitBtn.disabled = !ready || ui.submitted;
+    };
+    submitBtn = h("button.btn.btn-blood.mt-4", {
+      onclick: submit, disabled: !action ? false : true,
+    }, "Завершити ніч");
+    setTimeout(refreshSubmit, 0);
+
+    return Card([body, submitBtn]);
+  }
+
+  function renderDayDisc() {
+    return Card([
+      h("div.font-display.text-lg.mb-2", null, "🌅 Світанок"),
+      h("p.text-sm.muted.font-serif.italic", null,
+        "Місто прокинулось. Перегляньте хроніку нижче, обговоріть події та перейдіть до голосування."),
+      h("button.btn.btn-ghost-gold.mt-4", {
+        onclick: () => { haptic("medium"); update({ ...g, phase: "day-vote", votes: {} }); },
+      }, "До голосування"),
+    ]);
+  }
+
+  function renderVoting(human) {
+    const aliveExceptSelf = alivePlayers(g).filter((p) => p.id !== human.id);
+    const ui = { pick: null, submitted: false };
+
+    function submit() {
+      if (ui.submitted) return;
+      if (human.alive && !ui.pick) return;
+      ui.submitted = true; haptic("medium");
+      const votes = {};
+      if (human.alive && ui.pick) votes[human.id] = ui.pick;
+      for (const p of alivePlayers(g)) {
+        if (p.id === human.id) continue;
+        if (!p.isBot) continue;
+        const v = aiDayVote(g, p);
+        if (v) votes[p.id] = v;
       }
+      setTimeout(() => {
+        const next = resolveVotes(g, votes);
+        update(next);
+        if (next.winner) {
+          hapticNotify(next.winner === "town" && human.role !== "mafia" ? "success" : "error");
+        }
+      }, 600);
+    }
 
-      nightPanel = Card([
-        h('div.font-display.text-lg.accent.mb-3', {}, '🌙 Ваша нічна дія'),
-        isSheriff && !actionDone && h('div.row.gap-3.mb-3', {}, [
-          h('button.btn.btn-ghost-gold', { onclick: () => renderPanel('investigate'), style: 'flex:1' }, '🔍 Перевірити'),
-          h('button.btn.btn-blood',      { onclick: () => renderPanel('sheriffKill'), style: 'flex:1' }, '🔫 Вистрілити'),
-        ]),
-        !isSheriff && !actionDone && h('div', {}, [
-          h('p.muted.text-sm.mb-2', {}, myRole === 'mafia' ? 'Оберіть жертву:' : myRole === 'doctor' ? 'Кого врятувати?' : 'Оберіть ціль:'),
-          h('div.players-grid', {}, candidates.map(c =>
-            h('button.player-tile', { onclick: () => { haptic(); humanNightAction(c.id, def.nightAction); } },
-              [h('div.avatar', {}, c.avatar), h('div.name', {}, c.name)])
-          )),
-        ]),
-        actionDone && h('p.muted.text-center.py-4', {}, 'Дію виконано. Чекаємо...'),
+    if (!human.alive) {
+      return Card([
+        h("div.text-center.muted.font-serif.italic.mb-4", null,
+          "Ви мертві й не можете голосувати. Місто вирішує без вас."),
+        h("button.btn.btn-ghost-gold", { onclick: submit }, "Підрахувати голоси"),
       ]);
     }
 
-    // Vote panel
-    let votePanel = null;
-    if (g.phase === 'day-vote' && isAlive) {
-      const candidates = alive(g).filter(p => p.id !== g.humanId);
-      votePanel = Card([
-        h('div.font-display.text-lg.accent.mb-3', {}, '🗳️ Голосування'),
-        h('p.muted.text-sm.mb-3', {}, 'Кого вигнати з міста?'),
-        h('div.players-grid', {}, candidates.map(c =>
-          h('button.player-tile', { onclick: () => { haptic(); humanVote(c.id); } },
-            [h('div.avatar', {}, c.avatar), h('div.name', {}, c.name)])
-        )),
-        h('button.btn.btn-ghost-gold.mt-3', { onclick: () => humanVote(null) }, 'Утриматись'),
-      ]);
-    }
-
-    const investigationNote = g.night?.investigations?.find(i => i.sheriffId === g.humanId);
-
-    mount(container, Shell({ title: null, back: '/', children: [
-      h('div.row.space-between.mb-4', {}, [
-        h('div', {}, [
-          h('p.text-xs.muted.uppercase.tracking-mega', {}, `День ${g.day} · ${g.phase}`),
-          h('p.font-display.text-xl', {}, isAlive ? `${ROLE_ICON[myRole]} ${ROLE_LABEL[myRole]}` : '💀 Ви вибули'),
-        ]),
-        h('div.text-right', {}, [
-          h('p.text-xs.muted', {}, `Живих: ${alive(g).length}`),
-          h('p.text-xs.muted', {}, `Мафія: ${aliveTeam(g, 'mafia').length}`),
-        ]),
+    let pickerEl;
+    let submitBtn;
+    const renderPicker = () => h("div.target-grid", null, aliveExceptSelf.map((p) =>
+      h("button.target-tile" + (ui.pick === p.id ? ".picked" : ""), {
+        onclick: () => { ui.pick = p.id; haptic("light"); refresh(); },
+      }, [
+        h("div.av", null, p.avatar),
+        h("div.nm", null, p.name),
       ]),
+    ));
+    const refresh = () => {
+      const next = renderPicker();
+      pickerEl.replaceWith(next); pickerEl = next;
+      submitBtn.disabled = !ui.pick || ui.submitted;
+    };
+    pickerEl = renderPicker();
+    submitBtn = h("button.btn.btn-blood.mt-4", { onclick: submit, disabled: true }, "Голосувати");
 
-      // Role reveal
-      g.phase === 'role-reveal' && Card([
-        h('div.text-center', {}, [
-          h('div.text-6xl', {}, ROLE_ICON[myRole]),
-          h('h2.font-display.text-3xl.gold-text.mt-3', {}, ROLE_LABEL[myRole] || ''),
-          h('p.muted.font-serif.italic.mt-2.mb-4', {}, ROLE_DESC[myRole] || ''),
-          myRole === 'mafia' && h('p.text-sm.accent', {}, 'Ваші кореспонденти: ' + alive(g).filter(p => p.role === 'mafia' && p.id !== g.humanId).map(p => p.name).join(', ')),
-          h('button.btn.btn-blood.mt-4', { onclick: () => {
-            speak(`Ваша роль: ${ROLE_LABEL[myRole]}. ${ROLE_DESC[myRole]}`);
-            update({ ...g, phase: 'night-mafia', phaseStartedAt: Date.now(),
-              log: addLog(g.log, { day: 0, kind: 'info', text: 'Ніч 0. Місто засинає...' }) });
-          } }, '🌙 Почати ніч'),
+    return Card([
+      h("div.font-display.text-lg.mb-3", null, "⚖️ Кого вигнати з міста?"),
+      pickerEl,
+      submitBtn,
+    ]);
+  }
+
+  function renderEnd(human) {
+    const won =
+      (g.winner === "mafia" && human.role === "mafia") ||
+      (g.winner === "town" && human.role !== "mafia");
+    return h("div.card.text-center", null, [
+      h("div.text-xs.uppercase.tracking-mega.muted", null, "Фінал"),
+      h("h2.font-display.text-5xl.mt-3" + (won ? ".gold-text" : ".blood-text"), null,
+        won ? "ПЕРЕМОГА" : "ПОРАЗКА"),
+      h("p.muted.font-serif.italic.mt-3", null,
+        g.winner === "town" ? "Місто очистилось від мафії." : "Мафія перемогла. Місто впало в темряву."),
+      h("div.result-grid", null, g.players.map((p) =>
+        h("div.result-tile" + (p.role === "mafia" ? ".mafia" : ""), null, [
+          h("div.av", null, p.avatar),
+          h("div.nm", null, p.name),
+          h("div.rl", null, `${ROLE_ICON[p.role]} ${ROLE_LABEL[p.role]}`),
         ]),
+      )),
+      h("div.row.gap-2.mt-6", null, [
+        h("button.btn.btn-blood.flex-1", {
+          onclick: () => { clearLastGame(); navigate("/new"); },
+        }, "Нова партія"),
+        h("button.btn.btn-ghost-gold.flex-1", {
+          onclick: () => { clearLastGame(); navigate("/"); },
+        }, "В меню"),
       ]),
-
-      // Day discussion
-      g.phase === 'day-discussion' && Card([
-        h('div.font-display.text-xl.accent.mb-3', {}, '☀️ Обговорення'),
-        investigationNote && h('div.investigation-note.mb-3', {}, investigationNote.isMafia
-          ? `🔍 ${investigationNote.targetName} — МАФІЯ!`
-          : `🔍 ${investigationNote.targetName} — мирний.`),
-        PlayersGrid(g, { meId: g.humanId }),
-        h('button.btn.btn-blood.mt-4', { onclick: () => update({ ...g, phase: 'day-vote', phaseStartedAt: Date.now() }) }, 'Перейти до голосування →'),
-      ]),
-
-      nightPanel,
-      votePanel,
-      !isAlive && g.phase !== 'role-reveal' && Card([h('p.text-center.muted.font-serif.italic', {}, 'Ви вибули. Спостерігайте.')]),
-      PlayersGrid(g, { meId: g.humanId }),
-      GameLog(g),
-    ] }));
+    ]);
   }
 
   render();
-  runBots();
-  return () => clearTimers();
+}
+
+function showRoleReveal(player, onClose) {
+  let revealed = false;
+  let modalCloser;
+  function paint() {
+    const content = h("div.text-center", null,
+      !revealed
+        ? [
+            h("div.text-xs.uppercase.tracking-mega.muted", null, "Ваша таємна роль"),
+            h("button.reveal-card.mt-6", {
+              onclick: () => { revealed = true; haptic("heavy"); paint(); },
+            }, [
+              h("div.text-3xl.mb-2", null, "🃏"),
+              h("div.font-display.tracking-widest", null, "ВІДКРИТИ"),
+            ]),
+          ]
+        : [
+            h("div.text-xs.uppercase.tracking-mega.muted", null, "Ваша таємна роль"),
+            h("div.fade-in", null, [
+              h("div.text-6xl.mt-3", null, ROLE_ICON[player.role]),
+              h("div.font-display.text-3xl.gold-text.mt-3", null, ROLE_LABEL[player.role]),
+              h("p.text-sm.muted.font-serif.italic.mt-3", { style: { maxWidth: "320px", margin: "12px auto 0" } },
+                ROLE_DESC[player.role]),
+              h("button.btn.btn-blood.mt-6", {
+                onclick: () => { closeModal(); onClose(); },
+              }, "ПОЧАТИ"),
+            ]),
+          ],
+    );
+    if (modalCloser) closeModal();
+    modalCloser = openModal(content, { dismissable: false });
+  }
+  paint();
+}
+
+function showInvestigation(data) {
+  const content = h("div.text-center", null, [
+    h("div.font-display.text-xs.uppercase.tracking-mega.muted", null, "Результат перевірки"),
+    h("div.text-4xl.mt-2", null, data.isMafia ? "🩸" : "🌹"),
+    h("div.font-display.text-2xl.mt-3", null, data.name),
+    h("div" + (data.isMafia ? ".blood-text" : ".emerald") + ".text-lg.mt-2", null,
+      data.isMafia ? "Це МАФІЯ." : "Це не мафія."),
+    h("button.btn.btn-ghost-gold.mt-6", {
+      onclick: () => { closeModal(); hapticNotify("success"); },
+      style: { width: "auto", padding: "10px 24px" },
+    }, "Закрити"),
+  ]);
+  openModal(content);
 }

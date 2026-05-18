@@ -1,18 +1,21 @@
-import { h } from '../lib/dom.js';
+import { h } from "../lib/dom.js";
 
-export function Shell({ title, back = '/', bg = 'bg-noir', children }) {
-  return h('div.' + bg + '.grain.vignette', { style: 'min-height:100vh' }, [
-    h('div.shell', {}, [
-      h('header.header-bar', {}, [
-        h('a.back-link', { href: '#' + back }, '← Назад'),
-        title ? h('span.header-title', {}, title) : h('span.spacer-10', {}),
-        h('span.spacer-10', {}),
+export function Shell({ title, back, children, bg }) {
+  const wrap = h("div" + (bg ? "." + bg : "") + ".grain.vignette", {
+    style: { minHeight: "100vh" },
+  }, [
+    h("div.shell", null, [
+      h("header.header-bar", null, [
+        h("a.back-link", { href: "#" + (back || "/") }, "← Назад"),
+        title ? h("span.header-title", null, title) : h("span.spacer-10"),
+        h("span.spacer-10"),
       ]),
-      ...children,
+      ...(Array.isArray(children) ? children : [children]),
     ]),
   ]);
+  return wrap;
 }
 
-export function Card(children, extraClass = '') {
-  return h('div.card' + (extraClass ? '.' + extraClass : ''), {}, children);
+export function Card(children, opts) {
+  return h("div.card" + (opts?.extraClass ? "." + opts.extraClass : ""), null, children);
 }

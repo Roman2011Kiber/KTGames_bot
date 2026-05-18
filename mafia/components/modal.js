@@ -1,14 +1,22 @@
-import { h, clear } from '../lib/dom.js';
+import { h, mount, clear } from "../lib/dom.js";
 
-const root = () => document.getElementById('modal-root');
+const root = () => document.getElementById("modal-root");
 
-export function openModal(content, { dismissable = true } = {}) {
+export function openModal(contentNode, opts = {}) {
   const r = root();
-  const backdrop = h('div.modal-backdrop', {
-    onclick: e => { if (dismissable && e.target === backdrop) closeModal(); },
-  }, h('div.modal-card', { onclick: e => e.stopPropagation() }, content));
-  clear(r); r.appendChild(backdrop);
+  const onBackdrop = (e) => {
+    if (opts.dismissable !== false && e.target.classList.contains("modal-backdrop")) {
+      closeModal();
+    }
+  };
+  const backdrop = h("div.modal-backdrop", { onclick: onBackdrop }, [
+    h("div.modal-card", { onclick: (e) => e.stopPropagation() }, contentNode),
+  ]);
+  mount(r, backdrop);
   return closeModal;
 }
 
-export function closeModal() { clear(root()); }
+export function closeModal() {
+  const r = root();
+  if (r) clear(r);
+}
