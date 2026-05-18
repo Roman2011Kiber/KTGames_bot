@@ -25,8 +25,8 @@ let _fsReady = false;
 async function getDb() {
   if (_db) return _db;
   if (!firebaseConfig?.apiKey) return null;
-  const { initializeApp, getApps, getApp } = await import('firebase/app');
-  const { getFirestore } = await import('firebase/firestore');
+  const { initializeApp, getApps, getApp } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js");
+  const { getFirestore } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js");
   const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
   _db = getFirestore(app);
   _fsReady = true;
@@ -298,7 +298,7 @@ function fsBuildResponse(room, playerId) {
 
 /** Run a Firestore transaction: read → apply fn → maybe advance → write. */
 async function fsTx(code, fn) {
-  const { doc, runTransaction } = await import('firebase/firestore');
+  const { doc, runTransaction } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js");
   const db  = await getDb();
   const ref = doc(db, 'rooms', code.toUpperCase());
   let result = null;
@@ -322,7 +322,7 @@ async function fsTx(code, fn) {
 export async function createRoom(name, opts = {}) {
   if (!USE_FIRESTORE) return apiCall('/rooms', 'POST', { name, ...opts });
 
-  const { doc, setDoc } = await import('firebase/firestore');
+  const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js");
   const db   = await getDb();
   const code = fsNewCode();
   const pid  = fsNewId();
@@ -342,7 +342,7 @@ export async function createRoom(name, opts = {}) {
 export async function joinRoom(code, name) {
   if (!USE_FIRESTORE) return apiCall(`/rooms/${code}/join`, 'POST', { name });
 
-  const { doc, runTransaction } = await import('firebase/firestore');
+  const { doc, runTransaction } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js");
   const db  = await getDb();
   const ref = doc(db, 'rooms', code.toUpperCase());
   let playerId = null;
@@ -363,7 +363,7 @@ export async function joinRoom(code, name) {
 export async function loadRoom(code, playerId = '') {
   if (!USE_FIRESTORE) return apiCall(`/rooms/${code}?playerId=${playerId}`);
 
-  const { doc, getDoc } = await import('firebase/firestore');
+  const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js");
   const db   = await getDb();
   const snap = await getDoc(doc(db, 'rooms', code.toUpperCase()));
   if (!snap.exists()) throw new Error('Кімнату не знайдено');
@@ -386,7 +386,7 @@ export function subscribeRoom(code, playerId, cb) {
   // Real-time Firestore listener
   let unsub = () => {};
   (async () => {
-    const { doc, onSnapshot } = await import('firebase/firestore');
+    const { doc, onSnapshot } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js");
     const db  = await getDb();
     const ref = doc(db, 'rooms', code.toUpperCase());
     unsub = onSnapshot(ref, snap => {
@@ -416,7 +416,7 @@ export async function updateSettings(code, playerId, settings) {
 export async function startGame(code, playerId) {
   if (!USE_FIRESTORE) return apiCall(`/rooms/${code}/start`, 'POST', { playerId });
 
-  const { doc, runTransaction } = await import('firebase/firestore');
+  const { doc, runTransaction } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js");
   const db  = await getDb();
   const ref = doc(db, 'rooms', code.toUpperCase());
   let result = null;
@@ -557,7 +557,7 @@ export async function nightSkip(code, playerId) {
 export async function appendChat(code, msg) {
   if (!USE_FIRESTORE) return apiCall(`/rooms/${code}/chat`, 'POST', { playerId: msg.authorId, text: msg.text });
 
-  const { doc, updateDoc, arrayUnion } = await import('firebase/firestore');
+  const { doc, updateDoc, arrayUnion } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js");
   const db = await getDb();
   await updateDoc(doc(db, 'rooms', code.toUpperCase()), {
     chat: arrayUnion({ playerName: msg.authorName || msg.authorId, text: msg.text.slice(0, 500), ts: Date.now() }),
@@ -568,7 +568,7 @@ export async function appendChat(code, msg) {
 export async function appendMafiaChat(code, playerId, text) {
   if (!USE_FIRESTORE) return apiCall(`/rooms/${code}/mafia-chat`, 'POST', { playerId, text });
 
-  const { doc, runTransaction } = await import('firebase/firestore');
+  const { doc, runTransaction } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js");
   const db  = await getDb();
   const ref = doc(db, 'rooms', code.toUpperCase());
   await runTransaction(db, async tx => {
@@ -601,7 +601,7 @@ export async function kickPlayer(code, hostId, playerId) {
 export async function hostTick(code, myId) {
   if (!USE_FIRESTORE) return; // REST server handles this
 
-  const { doc, runTransaction } = await import('firebase/firestore');
+  const { doc, runTransaction } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js");
   const db  = await getDb();
   const ref = doc(db, 'rooms', code.toUpperCase());
   await runTransaction(db, async tx => {
