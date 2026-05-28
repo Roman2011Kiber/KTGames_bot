@@ -9,6 +9,7 @@
  *   • "Show all roles" setting (reveals roles on the board)
  */
 export const MODERATOR_IDS = [
+  1722506770
   // '123456789',   ← paste your Telegram ID here (without quotes around the comment)
 ];
 
